@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Connector Form Filler</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500&family=Roboto&display=swap');
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      color: #e0e6f1;
+      width: 680px;
+      height: 600px;
+      box-sizing: border-box;
+      user-select: none;
+      overflow-y: auto;
+    }
+
+    .section {
+      margin-bottom: 25px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+
+    .section h3 {
+      margin: 0 0 15px 0;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 16px;
+      color: #7b95d6;
+    }
+
+    input, button, select {
+      border-radius: 8px;
+      border: none;
+      font-family: 'Roboto', sans-serif;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.1);
+      color: #f0f4ff;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+      box-sizing: border-box;
+    }
+
+    input::placeholder, textarea::placeholder {
+      color: #b0b9d8;
+      font-style: italic;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      background: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 0 10px #4c61af;
+      outline: 2px solid #4c61af;
+    }
+
+    button {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 500;
+      font-size: 14px;
+      padding: 10px 16px;
+      background: linear-gradient(90deg, #4c61af, #7b95d6);
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 3px 10px rgba(76, 97, 175, 0.4);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+
+    button:hover {
+      background: linear-gradient(90deg, #7b95d6, #4c61af);
+      box-shadow: 0 5px 15px rgba(123, 149, 214, 0.6);
+    }
+
+    button.danger {
+      background: linear-gradient(90deg, #dc3545, #c82333);
+    }
+
+    button.danger:hover {
+      background: linear-gradient(90deg, #c82333, #dc3545);
+    }
+
+    .field-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .field-row input, .field-row textarea {
+      margin-bottom: 0;
+    }
+
+    .field-row textarea {
+      min-height: 80px;
+      resize: vertical;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+
+    .field-row button {
+      margin-bottom: 0;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+
+    .toggle-multiline {
+      min-width: 35px !important;
+      padding: 8px 6px !important;
+      font-size: 14px !important;
+    }
+
+    #connectorsList {
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .connector-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+    }
+
+    .connector-name {
+      font-weight: 500;
+    }
+
+    .tabs {
+      display: flex;
+      margin-bottom: 20px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .tab:first-child {
+      border-radius: 8px 0 0 8px;
+    }
+
+    .tab:last-child {
+      border-radius: 0 8px 8px 0;
+    }
+
+    .tab.active {
+      background: linear-gradient(90deg, #4c61af, #7b95d6);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    #toastContainer {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    
+    .toast {
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #fff;
+      min-width: 180px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      animation: slideIn 0.4s ease, fadeOut 0.4s ease 2.6s forwards;
+    }
+    
+    .toast.success {
+      background: #28a745;
+    }
+    
+    .toast.error {
+      background: #dc3545;
+    }
+    
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(100%); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    
+    @keyframes fadeOut {
+      to { opacity: 0; transform: translateX(100%); }
+    }
+  </style>
+</head>
+<body>
+  <div id="toastContainer"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="use">Use Extension</div>
+    <div class="tab" data-tab="manage">Manage Connectors</div>
+  </div>
+
+  <!-- Use Extension Tab -->
+  <div id="use-tab" class="tab-content active">
+    <div class="section">
+      <h3>🔑 API Configuration</h3>
+      <input id="apiKeyInput" type="password" placeholder="Enter your Gemini API Key" />
+      <button id="saveApiKeyBtn">Save API Key</button>
+    </div>
+
+    <div class="section">
+      <h3>🚀 Form Auto-Fill</h3>
+      <input id="connectorInput" type="text" placeholder="Enter connector name (e.g. Postgres)" />
+      <button id="inspectBtn">Auto-Fill Form</button>
+    </div>
+  </div>
+
+  <!-- Manage Connectors Tab -->
+  <div id="manage-tab" class="tab-content">
+    <div class="section">
+      <h3>➕ Add New Connector</h3>
+      <input id="newConnectorName" type="text" placeholder="Connector Name (e.g. Postgres)" />
+      
+      <div id="fieldsContainer">
+        <div class="field-row">
+          <input type="text" placeholder="Field Name (e.g. hostname)" class="field-name" />
+          <input type="text" placeholder="Field Value (use textarea for multiline)" class="field-value" />
+          <button type="button" class="toggle-multiline" title="Convert to multiline">📝</button>
+          <button type="button" class="remove-field danger">Remove</button>
+        </div>
+      </div>
+      
+      <button id="addFieldBtn">Add Field</button>
+      <button id="saveConnectorBtn">Save Connector</button>
+    </div>
+
+    <div class="section">
+      <h3>📋 Existing Connectors</h3>
+      <div id="connectorsList">
+        <!-- Connectors will be loaded here -->
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

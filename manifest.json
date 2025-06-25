@@ -1,0 +1,30 @@
+{
+    "manifest_version": 3,
+    "name": "QuickFill",
+    "version": "1.0",
+    "description": "Extracts and analyzes web forms using OpenAI",
+    "permissions": ["scripting", "activeTab", "storage"],
+    "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+      "16": "icons/magic-wand.png",
+      "48": "icons/magic-wand.png",
+      "128": "icons/magic-wand.png"
+    }
+    },
+    "web_accessible_resources": [
+  {
+    "resources": ["credentials.json"],
+    "matches": ["<all_urls>"]
+  }
+],
+
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+      }
+    ]
+  }
+  
