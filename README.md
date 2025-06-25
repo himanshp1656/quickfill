@@ -18,6 +18,8 @@
 - 💾 **Persistent**: Your connectors and API key sync across all Chrome devices
 
 ## 🖼️ Screenshots
+<img width="678" alt="Screenshot 2025-06-25 at 6 51 19 PM" src="https://github.com/user-attachments/assets/27c5d3b5-8c4e-41a8-b04a-7d30342c7e8c" />
+<img width="678" alt="Screenshot 2025-06-25 at 6 51 37 PM" src="https://github.com/user-attachments/assets/9162360b-8755-4276-a809-29577aa2a6b9" />
 
 ### Main Interface
 - **Use Extension Tab**: Enter connector name and auto-fill forms
