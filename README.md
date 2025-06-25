@@ -227,10 +227,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Community** for feedback and contributions
 
 ## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/quickfill-extension/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/quickfill-extension/discussions)
-- **Email**: your.email@example.com
+- **Email**: himanshu.pandey@atlan.com
 
 ---
 
