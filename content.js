@@ -48,7 +48,9 @@ async function extractForms() {
             const placeholder = input.placeholder || '';
             const type = input.type || 'text';
             let label = '';
+            let nearbyText = '';
 
+            // Priority 1: Explicit label element
             if (id) {
                 const labelElement = form.querySelector(`label[for="${id}"]`);
                 if (labelElement) {
@@ -56,10 +58,65 @@ async function extractForms() {
                 }
             }
 
+            // Priority 2: Parent label
             if (!label) {
                 const parentLabel = input.closest('label');
                 if (parentLabel) {
                     label = parentLabel.innerText.trim();
+                    // Remove the input value from label text if it got included
+                    if (input.value && label.includes(input.value)) {
+                        label = label.replace(input.value, '').trim();
+                    }
+                }
+            }
+
+            // Priority 3: Nearby text content (look for text near the input)
+            if (!label) {
+                // Look for text in previous sibling elements
+                let sibling = input.previousElementSibling;
+                while (sibling && !nearbyText) {
+                    if (sibling.textContent && sibling.textContent.trim()) {
+                        const text = sibling.textContent.trim();
+                        // Skip if it's just symbols or very short
+                        if (text.length > 2 && !/^[^a-zA-Z]*$/.test(text)) {
+                            nearbyText = text;
+                            break;
+                        }
+                    }
+                    sibling = sibling.previousElementSibling;
+                }
+
+                // Look in parent containers for descriptive text
+                if (!nearbyText) {
+                    let parent = input.parentElement;
+                    let depth = 0;
+                    while (parent && depth < 3) {
+                        // Look for spans, divs, or other elements with descriptive text
+                        const textElements = parent.querySelectorAll('span, div, p, h1, h2, h3, h4, h5, h6, strong, b');
+                        for (let textEl of textElements) {
+                            const text = textEl.textContent.trim();
+                            if (text.length > 2 && text.length < 50 && !/^[^a-zA-Z]*$/.test(text) && 
+                                !text.includes(input.value || '') && textEl !== input) {
+                                nearbyText = text;
+                                break;
+                            }
+                        }
+                        if (nearbyText) break;
+                        parent = parent.parentElement;
+                        depth++;
+                    }
+                }
+            }
+
+            // Priority 4: Aria-label or aria-labelledby
+            if (!label && !nearbyText) {
+                if (input.getAttribute('aria-label')) {
+                    label = input.getAttribute('aria-label').trim();
+                } else if (input.getAttribute('aria-labelledby')) {
+                    const labelledBy = document.getElementById(input.getAttribute('aria-labelledby'));
+                    if (labelledBy) {
+                        label = labelledBy.textContent.trim();
+                    }
                 }
             }
 
@@ -68,7 +125,8 @@ async function extractForms() {
                 name,
                 type,
                 placeholder,
-                label
+                label,
+                nearbyText
             });
         });
 
@@ -85,6 +143,117 @@ async function extractForms() {
     });
 
     return forms;
+}
+
+// Extract form fields for connector creation
+async function extractFormFieldsForConnector() {
+    const forms = await extractForms();
+    const allFields = [];
+    const seenFields = new Set();
+    
+    // Extract unique fields from all forms
+    forms.forEach(form => {
+        form.fields.forEach(field => {
+            // Skip empty fields or common non-credential fields
+            if (!field.id && !field.name && !field.placeholder && !field.label) return;
+            if (field.type === 'submit' || field.type === 'button') return;
+            
+            // Prioritize user-visible text over technical attributes
+            const fieldIdentifier = field.label || field.nearbyText || field.placeholder || field.name || field.id;
+            if (!fieldIdentifier) return;  // Skip if no identifier found
+            
+            const fieldKey = fieldIdentifier.toLowerCase();
+            
+            // Skip if we've already seen this field
+            if (seenFields.has(fieldKey)) return;
+            seenFields.add(fieldKey);
+            
+            // Clean up field name - preserve user-visible labels as much as possible
+            let cleanFieldName = fieldIdentifier.trim();
+            
+            // If it's a user-visible label (from label or nearbyText), preserve it more
+            const isUserVisibleLabel = field.label === fieldIdentifier || field.nearbyText === fieldIdentifier;
+            
+            if (isUserVisibleLabel) {
+                // For user-visible labels, keep exactly as they appear in UI
+                cleanFieldName = cleanFieldName
+                    .replace(/[*:]+\s*$/g, '')  // Only remove trailing asterisks and colons
+                    .trim();
+            } else {
+                // For technical fields (id, name, etc.), do more aggressive cleaning
+                
+                // Handle dot notation (e.g., "item.credential.guid.host" → "host")
+                if (cleanFieldName.includes('.')) {
+                    const parts = cleanFieldName.split('.');
+                    // Take the last meaningful part, but skip generic ones
+                    const meaningfulParts = parts.filter(part => 
+                        !['item', 'credential', 'guid', 'basic', 'extra', 'advanced', 'config', 'form', 'field', 'input', 'data'].includes(part.toLowerCase())
+                    );
+                    cleanFieldName = meaningfulParts.length > 0 ? meaningfulParts[meaningfulParts.length - 1] : parts[parts.length - 1];
+                }
+                
+                // Handle complex prefixes and suffixes for technical fields only
+                cleanFieldName = cleanFieldName
+                    .replace(/^(item|credential|guid|form|input|field|data|model|entity|object)[-_]?/i, '')
+                    .replace(/[-_]?(item|credential|guid|form|input|field|data|model|entity|object)$/i, '')
+                    .replace(/^(connection|conn|auth|config|cfg|setting|settings)[-_]?/i, '')
+                    .replace(/[-_]?(connection|conn|auth|config|cfg|setting|settings)$/i, '')
+                    .replace(/[-_]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                
+                // Convert camelCase for technical fields
+                cleanFieldName = cleanFieldName
+                    .replace(/([a-z])([A-Z])/g, '$1 $2')
+                    .toLowerCase()
+                    .trim();
+            }
+            
+            // If still empty or too generic, use original identifier
+            if (!cleanFieldName || cleanFieldName.length < 1) {
+                cleanFieldName = fieldIdentifier;
+            }
+            
+            // No field mapping - keep exactly what's in the UI
+            
+            // Final cleanup - preserve user-visible text exactly as it appears
+            if (isUserVisibleLabel) {
+                // For user-visible labels, keep them exactly as they appear in the UI
+                cleanFieldName = cleanFieldName.trim();
+            } else {
+                // For technical fields, make them programming-friendly
+                cleanFieldName = cleanFieldName
+                    .replace(/[^a-z0-9_\s]/g, '')  // Remove special characters except underscore and space
+                    .replace(/\s+/g, '_')  // Replace spaces with underscores
+                    .replace(/_{2,}/g, '_')  // Replace multiple underscores with single
+                    .replace(/^_|_$/g, '')  // Remove leading/trailing underscores
+                    .trim();
+            }
+            
+            // Ensure we have a valid field name
+            if (!cleanFieldName || cleanFieldName.length < 1) {
+                cleanFieldName = 'field';
+            }
+            
+            allFields.push({
+                id: field.id,
+                name: field.name,
+                type: field.type,
+                placeholder: field.placeholder,
+                label: field.label,
+                cleanName: cleanFieldName
+            });
+        });
+    });
+    
+    // Keep fields in the order they appear in the form (natural order)
+    // No artificial sorting - preserve the UI order
+    
+    return {
+        pageTitle: extractPageTitle(),
+        fields: allFields,
+        formsCount: forms.length
+    };
 }
 
 // Step 4: Send form and credentials to Gemini for key-value pair mapping
@@ -215,8 +384,21 @@ async function processPage(connectorName) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Message received in content.js:", message);
-    processPage(message.connectorName);
-  });
+    
+    if (message.action === 'extractFormFields') {
+        // Extract form fields and return them
+        extractFormFieldsForConnector().then(result => {
+            sendResponse(result);
+        }).catch(error => {
+            console.error('Error extracting form fields:', error);
+            sendResponse({ error: error.message });
+        });
+        return true; // Keep the message channel open for async response
+    } else {
+        // Default behavior - process page for autofill
+        processPage(message.connectorName);
+    }
+});
 
 
   function injectToastStyles() {

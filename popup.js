@@ -42,6 +42,7 @@ function setupEventListeners() {
   // Connector management
   document.getElementById('addFieldBtn').addEventListener('click', addField);
   document.getElementById('saveConnectorBtn').addEventListener('click', saveConnector);
+  document.getElementById('autoFetchBtn').addEventListener('click', autoFetchFields);
   
   // Remove field functionality (delegated event)
   document.getElementById('fieldsContainer').addEventListener('click', function(e) {
@@ -157,6 +158,96 @@ function toggleMultiline(button) {
     valueField.parentNode.replaceChild(input, valueField);
     button.textContent = '📝';
     button.title = 'Convert to multiline';
+  }
+}
+
+// Auto-fetch fields from current page
+async function autoFetchFields() {
+  const fetchStatus = document.getElementById('fetchStatus');
+  const autoFetchBtn = document.getElementById('autoFetchBtn');
+  
+  try {
+    // Show loading state
+    fetchStatus.textContent = 'Fetching form fields from current page...';
+    fetchStatus.className = 'fetch-status loading';
+    autoFetchBtn.disabled = true;
+    
+    // Get current active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // Inject content script and get form fields
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"]
+    });
+    
+    // Send message to content script to extract form fields
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractFormFields' });
+    
+    if (response && response.fields && response.fields.length > 0) {
+      // Clear existing fields except the first one
+      const fieldsContainer = document.getElementById('fieldsContainer');
+      fieldsContainer.innerHTML = '';
+      
+      // Add fields based on extracted form data
+      response.fields.forEach(field => {
+        const fieldRow = document.createElement('div');
+        fieldRow.className = 'field-row';
+        
+        // Use the cleaned field name from content script
+        const fieldName = field.cleanName || field.name || field.placeholder || field.label || field.id || 'field';
+        
+        fieldRow.innerHTML = `
+          <input type="text" placeholder="Field Name (e.g. hostname)" class="field-name" value="${fieldName}" />
+          <input type="text" placeholder="Field Value (use textarea for multiline)" class="field-value" />
+          <button type="button" class="toggle-multiline" title="Convert to multiline">📝</button>
+          <button type="button" class="remove-field danger">Remove</button>
+        `;
+        fieldsContainer.appendChild(fieldRow);
+      });
+      
+      // Auto-populate connector name from page title
+      let connectorName = response.pageTitle || 'New Connector';
+      
+      // Clean up connector name - extract relevant parts
+      connectorName = connectorName
+        .replace(/\s*[-|]\s*.*$/, '')  // Remove everything after dash or pipe
+        .replace(/\s*(login|signin|sign in|connect|connection|admin|dashboard)\s*/gi, '')  // Remove common words
+        .trim();
+      
+      if (!connectorName || connectorName.length < 3) {
+        connectorName = 'New Connector';
+      }
+      
+      document.getElementById('newConnectorName').value = connectorName;
+      
+      // Show success message
+      fetchStatus.textContent = `✅ Found ${response.fields.length} form fields! Please fill in the values.`;
+      fetchStatus.className = 'fetch-status success';
+      
+      showToast('success', `Auto-fetched ${response.fields.length} form fields!`);
+      
+    } else {
+      // No fields found
+      fetchStatus.textContent = '❌ No form fields found on this page.';
+      fetchStatus.className = 'fetch-status error';
+      showToast('error', 'No form fields found on current page');
+    }
+    
+  } catch (error) {
+    console.error('Error fetching form fields:', error);
+    fetchStatus.textContent = '❌ Failed to fetch form fields. Make sure you\'re on a page with forms.';
+    fetchStatus.className = 'fetch-status error';
+    showToast('error', 'Failed to fetch form fields from current page');
+  } finally {
+    // Re-enable button
+    autoFetchBtn.disabled = false;
+    
+    // Clear status after 5 seconds
+    setTimeout(() => {
+      fetchStatus.textContent = '';
+      fetchStatus.className = 'fetch-status';
+    }, 5000);
   }
 }
 
