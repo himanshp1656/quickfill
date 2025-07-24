@@ -273,12 +273,18 @@
       <input id="connectorInput" type="text" placeholder="Enter connector name (e.g. Postgres)" />
       <button id="inspectBtn">Auto-Fill Form</button>
     </div>
+
+    <div class="section">
+      <h3>📥 Import Connector</h3>
+      <textarea id="importJson" placeholder="Paste encoded connector data here..." style="min-height: 80px; font-family: 'Courier New', monospace; font-size: 12px;"></textarea>
+      <button id="importJsonBtn">Import Connector</button>
+    </div>
   </div>
 
   <!-- Manage Connectors Tab -->
   <div id="manage-tab" class="tab-content">
     <div class="section">
-      <h3>➕ Add New Connector</h3>
+      <h3>➕ Add New Connector/Form</h3>
       <input id="newConnectorName" type="text" placeholder="Connector Name (e.g. Postgres)" />
       
       <div class="auto-fetch-section">
@@ -305,7 +311,42 @@
         <!-- Connectors will be loaded here -->
       </div>
     </div>
+
+    <div class="section">
+      <h3>📤 Export Connectors</h3>
+      <div id="exportSection">
+        <button id="showExportInterface">Export Connectors</button>
+      </div>
+      
+      <!-- Export interface (hidden by default) -->
+      <div id="exportInterface" style="display: none; margin-top: 15px; padding: 20px; background: rgba(255, 255, 255, 0.08); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);">
+        <h4 style="margin: 0 0 20px 0; font-size: 16px; color: #7b95d6; font-weight: 500;">Select Connectors to Export:</h4>
+        <div id="connectorCheckboxes" style="max-height: 250px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px;">
+          <!-- Checkboxes will be populated here -->
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 8px;">
+          <button id="selectAllConnectors" style="background: linear-gradient(90deg, #28a745, #20c997);">Select All</button>
+          <button id="deselectAllConnectors" style="background: linear-gradient(90deg, #6c757d, #5a6268);">Deselect All</button>
+          <span id="selectedCount" style="font-size: 13px; color: #7b95d6; margin-left: auto; font-weight: 500;">
+            Selected: 0 connectors
+          </span>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button id="exportSelectedConnectors" style="background: linear-gradient(90deg, #4c61af, #7b95d6);">Export Selected</button>
+          <button id="cancelExport" style="background: rgba(255, 255, 255, 0.1); color: #b0b9d8;">Cancel</button>
+        </div>
+      </div>
+      
+      <div id="exportResult" style="margin-top: 15px; display: none;">
+        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #7b95d6;">Exported Data (Encoded):</h4>
+        <textarea id="exportedJson" readonly style="min-height: 100px; font-family: 'Courier New', monospace; font-size: 12px; background: rgba(0, 0, 0, 0.2);"></textarea>
+        <button id="copyExportedJson" style="margin-top: 10px;">Copy to Clipboard</button>
+      </div>
+    </div>
   </div>
+
+
+
 
   <script src="popup.js"></script>
 </body>

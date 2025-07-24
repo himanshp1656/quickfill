@@ -3,7 +3,12 @@
     "name": "QuickFill",
     "version": "1.0",
     "description": "Extracts and analyzes web forms using OpenAI",
-    "permissions": ["scripting", "activeTab", "storage"],
+    "permissions": [
+        "scripting", 
+        "activeTab", 
+        "storage"
+    ],
+
     "action": {
       "default_popup": "popup.html",
       "default_icon": {
@@ -13,12 +18,11 @@
     }
     },
     "web_accessible_resources": [
-  {
-    "resources": ["credentials.json"],
-    "matches": ["<all_urls>"]
-  }
-],
-
+      {
+        "resources": ["credentials.json"],
+        "matches": ["<all_urls>"]
+      }
+    ],
     "content_scripts": [
       {
         "matches": ["<all_urls>"],

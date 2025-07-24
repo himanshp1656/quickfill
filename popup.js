@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadApiKey();
   loadConnectors();
   setupEventListeners();
+  setupSharingUI();
 });
 
 // Tab switching functionality
@@ -31,10 +32,13 @@ function initializeTabs() {
   });
 }
 
-// Setup all event listeners
+  // Setup all event listeners
 function setupEventListeners() {
   // API Key management
   document.getElementById('saveApiKeyBtn').addEventListener('click', saveApiKey);
+  
+  // Import functionality
+  document.getElementById('importJsonBtn').addEventListener('click', importConnectorFromJson);
   
   // Form fill functionality
   document.getElementById('inspectBtn').addEventListener('click', fillForm);
@@ -43,6 +47,14 @@ function setupEventListeners() {
   document.getElementById('addFieldBtn').addEventListener('click', addField);
   document.getElementById('saveConnectorBtn').addEventListener('click', saveConnector);
   document.getElementById('autoFetchBtn').addEventListener('click', autoFetchFields);
+  
+  // Export functionality
+  document.getElementById('showExportInterface').addEventListener('click', showExportInterface);
+  document.getElementById('exportSelectedConnectors').addEventListener('click', exportSelectedConnectors);
+  document.getElementById('selectAllConnectors').addEventListener('click', selectAllConnectors);
+  document.getElementById('deselectAllConnectors').addEventListener('click', deselectAllConnectors);
+  document.getElementById('cancelExport').addEventListener('click', hideExportInterface);
+  document.getElementById('copyExportedJson').addEventListener('click', copyExportedJson);
   
   // Remove field functionality (delegated event)
   document.getElementById('fieldsContainer').addEventListener('click', function(e) {
@@ -63,6 +75,8 @@ function setupEventListeners() {
       deleteConnector(connectorName);
     }
   });
+  
+
 }
 
 // API Key Management
@@ -337,7 +351,7 @@ async function loadConnectors() {
     return;
   }
   
-  connectorsList.innerHTML = connectors.map(connector => `
+  const html = connectors.map(connector => `
     <div class="connector-item">
       <div>
         <div class="connector-name">${connector.title}</div>
@@ -349,6 +363,127 @@ async function loadConnectors() {
       </div>
     </div>
   `).join('');
+  
+  connectorsList.innerHTML = html;
+  
+  console.log('Connectors loaded:', connectors.length, 'Share buttons should be visible');
+}
+
+// Show export interface
+async function showExportInterface() {
+  const result = await chrome.storage.sync.get(['connectors']);
+  const connectors = result.connectors || [];
+  
+  if (connectors.length === 0) {
+    showToast('error', 'No connectors to export');
+    return;
+  }
+  
+  // Populate checkboxes
+  const checkboxContainer = document.getElementById('connectorCheckboxes');
+  checkboxContainer.innerHTML = connectors.map(connector => `
+    <div class="connector-option" style="display: flex; align-items: center; padding: 12px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.03); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); transition: all 0.2s ease; cursor: pointer;">
+      <div class="custom-checkbox" style="width: 20px; height: 20px; border: 2px solid #4c61af; border-radius: 4px; margin-right: 12px; display: flex; align-items: center; justify-content: center; background: rgba(76, 97, 175, 0.1); transition: all 0.2s ease;">
+        <input type="checkbox" class="export-checkbox" data-connector="${connector.title}" style="display: none;">
+        <span class="checkmark" style="color: white; font-size: 14px; font-weight: bold; opacity: 0; transition: opacity 0.2s ease;">✓</span>
+      </div>
+      <div style="flex: 1;">
+        <div style="font-weight: 500; color: #e0e6f1; font-size: 14px;">${connector.title}</div>
+        <div style="font-size: 12px; color: #b0b9d8; margin-top: 2px;">${connector.fields.length} fields</div>
+      </div>
+    </div>
+  `).join('');
+  
+  // Add event listeners for checkboxes and custom styling
+  const checkboxes = checkboxContainer.querySelectorAll('.export-checkbox');
+  const connectorOptions = checkboxContainer.querySelectorAll('.connector-option');
+  
+  checkboxes.forEach((checkbox, index) => {
+    const option = connectorOptions[index];
+    const customCheckbox = option.querySelector('.custom-checkbox');
+    const checkmark = option.querySelector('.checkmark');
+    
+    // Handle checkbox change
+    checkbox.addEventListener('change', () => {
+      updateSelectedCount();
+      updateCheckboxStyle(checkbox, customCheckbox, checkmark);
+    });
+    
+    // Handle click on the entire option
+    option.addEventListener('click', (e) => {
+      if (e.target !== checkbox) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+      }
+    });
+    
+    // Handle hover effects
+    option.addEventListener('mouseenter', () => {
+      option.style.background = 'rgba(255, 255, 255, 0.08)';
+      option.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+    });
+    
+    option.addEventListener('mouseleave', () => {
+      option.style.background = 'rgba(255, 255, 255, 0.03)';
+      option.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+    });
+  });
+  
+  // Show interface
+  document.getElementById('exportInterface').style.display = 'block';
+  updateSelectedCount();
+}
+
+// Hide export interface
+function hideExportInterface() {
+  document.getElementById('exportInterface').style.display = 'none';
+  document.getElementById('exportResult').style.display = 'none';
+}
+
+// Update selected count display
+function updateSelectedCount() {
+  const checkboxes = document.querySelectorAll('.export-checkbox:checked');
+  const selectedCount = document.getElementById('selectedCount');
+  selectedCount.textContent = `Selected: ${checkboxes.length} connector${checkboxes.length !== 1 ? 's' : ''}`;
+}
+
+// Update checkbox visual style
+function updateCheckboxStyle(checkbox, customCheckbox, checkmark) {
+  if (checkbox.checked) {
+    customCheckbox.style.background = 'linear-gradient(90deg, #4c61af, #7b95d6)';
+    customCheckbox.style.borderColor = '#7b95d6';
+    checkmark.style.opacity = '1';
+  } else {
+    customCheckbox.style.background = 'rgba(76, 97, 175, 0.1)';
+    customCheckbox.style.borderColor = '#4c61af';
+    checkmark.style.opacity = '0';
+  }
+}
+
+// Select all connectors
+function selectAllConnectors() {
+  const checkboxes = document.querySelectorAll('.export-checkbox');
+  const customCheckboxes = document.querySelectorAll('.custom-checkbox');
+  const checkmarks = document.querySelectorAll('.checkmark');
+  
+  checkboxes.forEach((checkbox, index) => {
+    checkbox.checked = true;
+    updateCheckboxStyle(checkbox, customCheckboxes[index], checkmarks[index]);
+  });
+  updateSelectedCount();
+}
+
+// Deselect all connectors
+function deselectAllConnectors() {
+  const checkboxes = document.querySelectorAll('.export-checkbox');
+  const customCheckboxes = document.querySelectorAll('.custom-checkbox');
+  const checkmarks = document.querySelectorAll('.checkmark');
+  
+  checkboxes.forEach((checkbox, index) => {
+    checkbox.checked = false;
+    updateCheckboxStyle(checkbox, customCheckboxes[index], checkmarks[index]);
+  });
+  updateSelectedCount();
 }
 
 async function deleteConnector(connectorName) {
@@ -417,5 +552,187 @@ function showToast(type, message) {
   }, 3000);
 }
 
-// Functions are now handled through event delegation, no need for global assignments
+
+
+
+
+// Import connector from JSON
+async function importConnectorFromJson() {
+  const jsonData = document.getElementById('importJson').value.trim();
+  if (!jsonData) {
+    showToast('error', 'Please paste connector data');
+    return;
+  }
+
+  try {
+    let data;
+    
+    // Try to decode as Base64 first
+    try {
+      const decodedData = atob(jsonData);
+      data = JSON.parse(decodedData);
+    } catch (base64Error) {
+      // If Base64 fails, try as plain JSON
+      data = JSON.parse(jsonData);
+    }
+    
+    // Handle different export formats
+    let connectorsToImport = [];
+    
+    if (data.connector) {
+      // Single connector export format
+      connectorsToImport = [data.connector];
+    } else if (data.connectors && Array.isArray(data.connectors)) {
+      // Multiple connectors export format
+      connectorsToImport = data.connectors;
+    } else if (data.title && data.fields && Array.isArray(data.fields)) {
+      // Direct connector object format
+      connectorsToImport = [data];
+    } else {
+      throw new Error('Invalid connector format - no valid connector data found');
+    }
+    
+    // Validate all connectors
+    for (let i = 0; i < connectorsToImport.length; i++) {
+      const connector = connectorsToImport[i];
+      if (!connector.title || !connector.fields || !Array.isArray(connector.fields)) {
+        throw new Error(`Invalid connector format at index ${i}`);
+      }
+    }
+
+    // Get existing connectors
+    const result = await chrome.storage.sync.get(['connectors']);
+    const existingConnectors = result.connectors || [];
+    
+    // Import all connectors
+    let importedCount = 0;
+    for (const connector of connectorsToImport) {
+      // Handle naming conflicts
+      let connectorName = connector.title;
+      let counter = 1;
+      while (existingConnectors.some(c => c.title === connectorName)) {
+        connectorName = `${connector.title} (${counter})`;
+        counter++;
+      }
+      
+      // Add the imported connector
+      const newConnector = {
+        ...connector,
+        title: connectorName
+      };
+      
+      existingConnectors.push(newConnector);
+      importedCount++;
+    }
+    
+    // Save all connectors
+    await chrome.storage.sync.set({ connectors: existingConnectors });
+    
+    // Clear the input
+    document.getElementById('importJson').value = '';
+    showToast('success', `Successfully imported ${importedCount} connector${importedCount > 1 ? 's' : ''}`);
+    
+    // Switch to manage tab to show the imported connector(s)
+    document.querySelector('.tab[data-tab="manage"]').click();
+  } catch (error) {
+    showToast('error', 'Invalid connector data: ' + error.message);
+    console.error('Import error:', error);
+  }
+}
+
+
+
+// Export selected connectors
+async function exportSelectedConnectors() {
+  const selectedCheckboxes = document.querySelectorAll('.export-checkbox:checked');
+  
+  if (selectedCheckboxes.length === 0) {
+    showToast('error', 'Please select at least one connector to export');
+    return;
+  }
+  
+  const result = await chrome.storage.sync.get(['connectors']);
+  const allConnectors = result.connectors || [];
+  const selectedConnectors = [];
+  
+  // Get selected connectors
+  selectedCheckboxes.forEach(checkbox => {
+    const connectorName = checkbox.getAttribute('data-connector');
+    const connector = allConnectors.find(c => c.title === connectorName);
+    if (connector) {
+      selectedConnectors.push(connector);
+    }
+  });
+  
+  if (selectedConnectors.length === 0) {
+    showToast('error', 'No valid connectors found');
+    return;
+  }
+  
+  const exportData = {
+    version: '1.0',
+    exportedAt: new Date().toISOString(),
+    connectors: selectedConnectors
+  };
+  
+  const jsonString = JSON.stringify(exportData, null, 2);
+  const encodedString = btoa(jsonString);
+  displayExportedJson(encodedString, jsonString);
+  showToast('success', `Exported ${selectedConnectors.length} connector${selectedConnectors.length > 1 ? 's' : ''} (encoded)`);
+}
+
+// Display exported JSON
+function displayExportedJson(encodedString, jsonString) {
+  const exportResult = document.getElementById('exportResult');
+  const exportedJson = document.getElementById('exportedJson');
+  
+  // Show encoded string by default (for sharing)
+  exportedJson.value = encodedString;
+  exportResult.style.display = 'block';
+  
+  // Add toggle button to switch between encoded and decoded
+  const toggleButton = document.getElementById('toggleEncoded') || createToggleButton();
+  toggleButton.onclick = () => {
+    if (exportedJson.value === encodedString) {
+      exportedJson.value = jsonString;
+      toggleButton.textContent = 'Show Encoded';
+    } else {
+      exportedJson.value = encodedString;
+      toggleButton.textContent = 'Show Decoded';
+    }
+  };
+  
+  // Scroll to export result
+  exportResult.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Create toggle button for encoded/decoded view
+function createToggleButton() {
+  const exportResult = document.getElementById('exportResult');
+  const toggleButton = document.createElement('button');
+  toggleButton.id = 'toggleEncoded';
+  toggleButton.textContent = 'Show Decoded';
+  toggleButton.style.marginLeft = '10px';
+  
+  // Insert after copy button
+  const copyButton = document.getElementById('copyExportedJson');
+  copyButton.parentNode.insertBefore(toggleButton, copyButton.nextSibling);
+  
+  return toggleButton;
+}
+
+// Copy exported JSON to clipboard
+async function copyExportedJson() {
+  const exportedJson = document.getElementById('exportedJson');
+  
+  try {
+    await navigator.clipboard.writeText(exportedJson.value);
+    showToast('success', 'JSON copied to clipboard');
+  } catch (error) {
+    // Fallback for older browsers
+    exportedJson.select();
+    document.execCommand('copy');
+    showToast('success', 'JSON copied to clipboard');
+  }
+}
   
