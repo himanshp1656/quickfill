@@ -3,16 +3,29 @@
 (() => {
     let credentialsData = [];
     let geminiApiKey = '';
+    let suggestionsContainer = null;
+    let activeSuggestionIndex = -1;
+    let currentAnchorInput = null;
 
-    // Load data from storage
+    // Load data from storage (resilient to extension reloads)
     async function loadStoredData() {
         return new Promise((resolve) => {
-            chrome.storage.sync.get(['connectors', 'geminiApiKey'], (result) => {
-                credentialsData = result.connectors || [];
-                geminiApiKey = result.geminiApiKey || '';
-                console.log('Loaded from storage:', { credentialsData, geminiApiKey });
+            try {
+                if (!chrome?.runtime?.id || !chrome?.storage?.sync) {
+                    console.warn('QuickFill: extension context not available yet');
+                    resolve();
+                    return;
+                }
+                chrome.storage.sync.get(['connectors', 'geminiApiKey'], (result) => {
+                    credentialsData = result?.connectors || [];
+                    geminiApiKey = result?.geminiApiKey || '';
+                    console.log('Loaded from storage:', { credentialsData, geminiApiKey });
+                    resolve();
+                });
+            } catch (err) {
+                console.warn('QuickFill: failed to access chrome.storage (possibly reloaded). Refresh the page to restore.', err);
                 resolve();
-            });
+            }
         });
     }
 
@@ -361,8 +374,11 @@ async function processPage(connectorName) {
     let matchingCredentials;
     if (connectorName && connectorName.trim() !== '') {
         console.log("Using connector name:", connectorName);
-        // Use flexible matching like searchCredentialsByTitle but based on connectorName instead of title
-        matchingCredentials = searchCredentialsByTitle(connectorName);
+        // Exact match first (clicked item), fallback to flexible if not found
+        matchingCredentials = credentialsData.filter(c => c.title.toLowerCase() === connectorName.toLowerCase());
+        if (matchingCredentials.length === 0) {
+            matchingCredentials = searchCredentialsByTitle(connectorName);
+        }
     } else {
         matchingCredentials = searchCredentialsByTitle(title);
     }
@@ -469,6 +485,272 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }, 5000); // stays for 5 seconds
   }
   
+  // Inline suggestions (connector picker)
+  function injectSuggestionStyles() {
+    if (document.getElementById('quickfill-suggestions-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'quickfill-suggestions-styles';
+    style.innerHTML = `
+      .quickfill-suggestions {
+        position: absolute;
+        z-index: 2147483647;
+        background: #0f1220;
+        color: #e0e6f1;
+        border: 1px solid rgba(123,149,214,0.35);
+        border-radius: 10px;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+        overflow: hidden;
+        min-width: 240px;
+        max-width: 360px;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .quickfill-suggestions-header {
+        padding: 10px 12px;
+        font-size: 12px;
+        color: #8ea2e1;
+        border-bottom: 1px solid rgba(123,149,214,0.2);
+      }
+      .quickfill-suggestion-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        cursor: pointer;
+        transition: background 0.12s ease;
+      }
+      .quickfill-suggestion-item:hover,
+      .quickfill-suggestion-item.active {
+        background: rgba(123,149,214,0.18);
+      }
+      .quickfill-suggestion-title {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .quickfill-suggestion-sub {
+        font-size: 11px;
+        color: #a8b3d6;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function normalize(text) {
+    return (text || '')
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function tokenize(text) {
+    const norm = normalize(text);
+    return new Set(norm ? norm.split(' ').filter(Boolean) : []);
+  }
+
+  function jaccardSimilarity(aSet, bSet) {
+    if (!aSet.size || !bSet.size) return 0;
+    let inter = 0;
+    aSet.forEach(tok => { if (bSet.has(tok)) inter += 1; });
+    const union = new Set([...aSet, ...bSet]).size;
+    return inter / union;
+  }
+
+  function buildFormFieldVocabulary(forms) {
+    const vocab = new Set();
+    forms.forEach(form => {
+      form.fields.forEach(f => {
+        [f.id, f.name, f.placeholder, f.label, f.nearbyText]
+          .filter(Boolean)
+          .map(normalize)
+          .forEach(val => {
+            if (!val) return;
+            val.split(' ').forEach(token => {
+              const trimmed = token.trim();
+              if (trimmed && trimmed.length > 1) vocab.add(trimmed);
+            });
+          });
+      });
+    });
+    return vocab;
+  }
+
+  function scoreConnectorAgainstPage(connector, forms, pageTitle) {
+    const formVocab = buildFormFieldVocabulary(forms);
+    const titleTokens = tokenize(pageTitle);
+    const headingTokens = forms.reduce((acc, f) => {
+      tokenize(f.formContext).forEach(t => acc.add(t));
+      return acc;
+    }, new Set());
+
+    const connectorTitleTokens = tokenize(connector.title);
+    let titleOverlap = 0;
+    connectorTitleTokens.forEach(tok => { if (titleTokens.has(tok)) titleOverlap += 1; });
+
+    let headingOverlap = 0;
+    connectorTitleTokens.forEach(tok => { if (headingTokens.has(tok)) headingOverlap += 1; });
+
+    let fieldOverlap = 0;
+    (connector.fields || []).forEach(f => {
+      const tokens = tokenize(f.id);
+      tokens.forEach(t => { if (formVocab.has(t)) fieldOverlap += 1; });
+    });
+
+    // Weighted composite score
+    const score = fieldOverlap * 2 + headingOverlap * 1.5 + titleOverlap * 1.0;
+    return { score, titleOverlap, headingOverlap };
+  }
+
+  async function getRankedConnectorsForCurrentPage() {
+    await loadStoredData();
+    const forms = await extractForms();
+    const title = extractPageTitle();
+    const ranked = credentialsData
+      .map(c => {
+        const { score, titleOverlap, headingOverlap } = scoreConnectorAgainstPage(c, forms, title);
+        return { connector: c, score, titleOverlap, headingOverlap };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    // Prefer connectors that have some heading/title overlap; if none, do not show suggestions
+    const titleTokens = tokenize(title);
+    const headingTokens = forms.reduce((acc, f) => { tokenize(f.formContext).forEach(t => acc.add(t)); return acc; }, new Set());
+    const filtered = ranked.filter(r => r.titleOverlap > 0 || r.headingOverlap > 0);
+    return { ranked: filtered, meta: { titleTokens, headingTokens } };
+  }
+
+  function createSuggestionsContainer() {
+    injectSuggestionStyles();
+    if (suggestionsContainer) suggestionsContainer.remove();
+    suggestionsContainer = document.createElement('div');
+    suggestionsContainer.className = 'quickfill-suggestions';
+    suggestionsContainer.style.display = 'none';
+    document.body.appendChild(suggestionsContainer);
+    return suggestionsContainer;
+  }
+
+  function positionSuggestions(anchor) {
+    if (!suggestionsContainer || !anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const top = rect.bottom + window.scrollY + 6;
+    const left = rect.left + window.scrollX;
+    const width = Math.max(rect.width, 260);
+    suggestionsContainer.style.top = `${top}px`;
+    suggestionsContainer.style.left = `${left}px`;
+    suggestionsContainer.style.minWidth = `${width}px`;
+  }
+
+  function hideSuggestions() {
+    if (!suggestionsContainer) return;
+    suggestionsContainer.style.display = 'none';
+    suggestionsContainer.innerHTML = '';
+    activeSuggestionIndex = -1;
+    currentAnchorInput = null;
+  }
+
+  function updateActiveItem(index) {
+    const items = suggestionsContainer.querySelectorAll('.quickfill-suggestion-item');
+    items.forEach(el => el.classList.remove('active'));
+    if (index >= 0 && index < items.length) {
+      items[index].classList.add('active');
+      activeSuggestionIndex = index;
+    }
+  }
+
+  async function showConnectorSuggestions(anchorInput) {
+    try {
+      const { ranked } = await getRankedConnectorsForCurrentPage();
+      if (!ranked || ranked.length === 0) return;
+
+      createSuggestionsContainer();
+      currentAnchorInput = anchorInput;
+      positionSuggestions(anchorInput);
+
+      const topN = ranked.slice(0, 7);
+      const header = document.createElement('div');
+      header.className = 'quickfill-suggestions-header';
+      header.textContent = 'QuickFill suggestions';
+      suggestionsContainer.appendChild(header);
+
+      topN.forEach(({ connector, score, titleOverlap, headingOverlap }, idx) => {
+        const item = document.createElement('div');
+        item.className = 'quickfill-suggestion-item';
+        item.innerHTML = `
+          <div style="width: 8px; height: 8px; border-radius: 2px; background: ${idx === 0 ? '#64ffda' : '#7b95d6'}"></div>
+          <div>
+            <div class="quickfill-suggestion-title">${connector.title}</div>
+            <div class="quickfill-suggestion-sub">${connector.fields?.length || 0} fields · score ${Math.round(score)} · title ${titleOverlap} · heading ${headingOverlap}</div>
+          </div>
+        `;
+        item.addEventListener('mousedown', (e) => { // mousedown to trigger before blur
+          e.preventDefault();
+          hideSuggestions();
+          processPage(connector.title);
+        });
+        suggestionsContainer.appendChild(item);
+      });
+
+      suggestionsContainer.style.display = 'block';
+      updateActiveItem(0);
+    } catch (e) {
+      console.error('Suggestions error', e);
+    }
+  }
+
+  // Event wiring for inputs
+  function shouldTriggerForElement(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input') {
+      const type = (el.type || 'text').toLowerCase();
+      return ['text', 'email', 'password', 'search', 'url', 'tel', 'number'].includes(type);
+    }
+    return tag === 'textarea';
+  }
+
+  document.addEventListener('focusin', (e) => {
+    const target = e.target;
+    if (!shouldTriggerForElement(target)) return;
+    showConnectorSuggestions(target);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!suggestionsContainer || suggestionsContainer.style.display === 'none') return;
+    if (!currentAnchorInput) return;
+    const isForAnchor = document.activeElement === currentAnchorInput;
+    if (!isForAnchor) return;
+    const items = suggestionsContainer.querySelectorAll('.quickfill-suggestion-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      updateActiveItem(Math.min(activeSuggestionIndex + 1, items.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      updateActiveItem(Math.max(activeSuggestionIndex - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const el = items[activeSuggestionIndex] || items[0];
+      if (el) el.dispatchEvent(new Event('mousedown'));
+    } else if (e.key === 'Escape') {
+      hideSuggestions();
+    }
+  });
+
+  window.addEventListener('scroll', () => {
+    if (!suggestionsContainer || suggestionsContainer.style.display === 'none') return;
+    positionSuggestions(currentAnchorInput);
+  }, true);
+
+  window.addEventListener('resize', () => {
+    if (!suggestionsContainer || suggestionsContainer.style.display === 'none') return;
+    positionSuggestions(currentAnchorInput);
+  });
+  
+  document.addEventListener('click', (e) => {
+    if (!suggestionsContainer || suggestionsContainer.style.display === 'none') return;
+    if (suggestionsContainer.contains(e.target) || e.target === currentAnchorInput) return;
+    hideSuggestions();
+  });
+
 
   
 })();
