@@ -611,12 +611,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .sort((a, b) => b.score - a.score);
 
-    // Prefer connectors that have some heading/title overlap; fallback to all if none
+    // Prefer connectors that have some heading/title overlap; if none, do not show suggestions
     const titleTokens = tokenize(title);
     const headingTokens = forms.reduce((acc, f) => { tokenize(f.formContext).forEach(t => acc.add(t)); return acc; }, new Set());
     const filtered = ranked.filter(r => r.titleOverlap > 0 || r.headingOverlap > 0);
-    const result = filtered.length > 0 ? filtered : ranked;
-    return { ranked: result, meta: { titleTokens, headingTokens } };
+    return { ranked: filtered, meta: { titleTokens, headingTokens } };
   }
 
   function createSuggestionsContainer() {
