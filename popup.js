@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', function() {
   initializeTabs();
   loadApiKey();
+  loadSuggestionsPreference();
   loadConnectors();
   setupEventListeners();
   setupSharingUI();
@@ -42,6 +43,9 @@ function setupEventListeners() {
   
   // Form fill functionality
   document.getElementById('inspectBtn').addEventListener('click', fillForm);
+  
+  // Inline suggestions toggle
+  document.getElementById('suggestionsToggle').addEventListener('change', saveSuggestionsPreference);
   
   // Connector management
   document.getElementById('addFieldBtn').addEventListener('click', addField);
@@ -85,6 +89,18 @@ async function loadApiKey() {
   if (result.geminiApiKey) {
     document.getElementById('apiKeyInput').value = result.geminiApiKey;
   }
+}
+
+async function loadSuggestionsPreference() {
+  const result = await chrome.storage.sync.get(['suggestionsEnabled']);
+  const suggestionsEnabled = result.suggestionsEnabled !== false; // default to true
+  document.getElementById('suggestionsToggle').checked = suggestionsEnabled;
+}
+
+async function saveSuggestionsPreference() {
+  const enabled = document.getElementById('suggestionsToggle').checked;
+  await chrome.storage.sync.set({ suggestionsEnabled: enabled });
+  showToast('success', `Inline suggestions ${enabled ? 'enabled' : 'disabled'}`);
 }
 
 async function saveApiKey() {
@@ -219,6 +235,17 @@ async function autoFetchFields() {
         `;
         fieldsContainer.appendChild(fieldRow);
       });
+      
+      // Add the form-url field automatically
+      const urlFieldRow = document.createElement('div');
+      urlFieldRow.className = 'field-row';
+      urlFieldRow.innerHTML = `
+        <input type="text" placeholder="Field Name (e.g. hostname)" class="field-name" value="form-url" readonly style="background: rgba(255, 255, 255, 0.05); color: #8ea2e1;" />
+        <input type="text" placeholder="Field Value (use textarea for multiline)" class="field-value" value="${response.formUrl || ''}" readonly style="background: rgba(255, 255, 255, 0.05); color: #8ea2e1;" />
+        <button type="button" class="toggle-multiline" title="Convert to multiline" disabled>📝</button>
+        <button type="button" class="remove-field danger" disabled>Remove</button>
+      `;
+      fieldsContainer.appendChild(urlFieldRow);
       
       // Auto-populate connector name from page title
       let connectorName = response.pageTitle || 'New Connector';

@@ -265,7 +265,8 @@ async function extractFormFieldsForConnector() {
     return {
         pageTitle: extractPageTitle(),
         fields: allFields,
-        formsCount: forms.length
+        formsCount: forms.length,
+        formUrl: window.location.origin + window.location.pathname
     };
 }
 
@@ -575,47 +576,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   function scoreConnectorAgainstPage(connector, forms, pageTitle) {
-    const formVocab = buildFormFieldVocabulary(forms);
-    const titleTokens = tokenize(pageTitle);
-    const headingTokens = forms.reduce((acc, f) => {
-      tokenize(f.formContext).forEach(t => acc.add(t));
-      return acc;
-    }, new Set());
-
-    const connectorTitleTokens = tokenize(connector.title);
-    let titleOverlap = 0;
-    connectorTitleTokens.forEach(tok => { if (titleTokens.has(tok)) titleOverlap += 1; });
-
-    let headingOverlap = 0;
-    connectorTitleTokens.forEach(tok => { if (headingTokens.has(tok)) headingOverlap += 1; });
-
-    let fieldOverlap = 0;
-    (connector.fields || []).forEach(f => {
-      const tokens = tokenize(f.id);
-      tokens.forEach(t => { if (formVocab.has(t)) fieldOverlap += 1; });
-    });
-
-    // Weighted composite score
-    const score = fieldOverlap * 2 + headingOverlap * 1.5 + titleOverlap * 1.0;
-    return { score, titleOverlap, headingOverlap };
+    const currentUrl = window.location.origin + window.location.pathname;
+    
+    // Check if connector has a form-url field that matches current URL
+    const urlField = connector.fields?.find(f => f.id === 'form-url');
+    if (urlField && urlField.value) {
+      const connectorUrl = urlField.value;
+      if (currentUrl === connectorUrl) {
+        return true; // URL matches
+      }
+    }
+    return false; // No URL match
   }
 
   async function getRankedConnectorsForCurrentPage() {
     await loadStoredData();
     const forms = await extractForms();
     const title = extractPageTitle();
-    const ranked = credentialsData
-      .map(c => {
-        const { score, titleOverlap, headingOverlap } = scoreConnectorAgainstPage(c, forms, title);
-        return { connector: c, score, titleOverlap, headingOverlap };
-      })
-      .sort((a, b) => b.score - a.score);
-
-    // Prefer connectors that have some heading/title overlap; if none, do not show suggestions
-    const titleTokens = tokenize(title);
-    const headingTokens = forms.reduce((acc, f) => { tokenize(f.formContext).forEach(t => acc.add(t)); return acc; }, new Set());
-    const filtered = ranked.filter(r => r.titleOverlap > 0 || r.headingOverlap > 0);
-    return { ranked: filtered, meta: { titleTokens, headingTokens } };
+    
+    // Simple: only show connectors with matching form-url
+    const matchingConnectors = credentialsData.filter(c => scoreConnectorAgainstPage(c, forms, title));
+    
+    console.log('QuickFill: Current URL:', window.location.origin + window.location.pathname);
+    console.log('QuickFill: Matching connectors:', matchingConnectors);
+    
+    return { ranked: matchingConnectors, meta: { currentUrl: window.location.origin + window.location.pathname } };
   }
 
   function createSuggestionsContainer() {
@@ -659,26 +644,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   async function showConnectorSuggestions(anchorInput) {
     try {
       const { ranked } = await getRankedConnectorsForCurrentPage();
-      if (!ranked || ranked.length === 0) return;
+      console.log('QuickFill: Got ranked connectors:', ranked);
+      console.log('QuickFill: Current URL:', window.location.origin + window.location.pathname);
+      
+      if (!ranked || ranked.length === 0) {
+        console.log('QuickFill: No connectors with URL matches found');
+        return;
+      }
 
       createSuggestionsContainer();
       currentAnchorInput = anchorInput;
       positionSuggestions(anchorInput);
 
       const topN = ranked.slice(0, 7);
+      console.log('QuickFill: Top connectors:', topN);
       const header = document.createElement('div');
       header.className = 'quickfill-suggestions-header';
       header.textContent = 'QuickFill suggestions';
       suggestionsContainer.appendChild(header);
 
-      topN.forEach(({ connector, score, titleOverlap, headingOverlap }, idx) => {
+      topN.forEach((connector, idx) => {
         const item = document.createElement('div');
         item.className = 'quickfill-suggestion-item';
         item.innerHTML = `
           <div style="width: 8px; height: 8px; border-radius: 2px; background: ${idx === 0 ? '#64ffda' : '#7b95d6'}"></div>
           <div>
             <div class="quickfill-suggestion-title">${connector.title}</div>
-            <div class="quickfill-suggestion-sub">${connector.fields?.length || 0} fields · score ${Math.round(score)} · title ${titleOverlap} · heading ${headingOverlap}</div>
+            <div class="quickfill-suggestion-sub">${connector.fields?.length || 0} fields</div>
           </div>
         `;
         item.addEventListener('mousedown', (e) => { // mousedown to trigger before blur
@@ -707,9 +699,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return tag === 'textarea';
   }
 
-  document.addEventListener('focusin', (e) => {
+  document.addEventListener('focusin', async (e) => {
     const target = e.target;
     if (!shouldTriggerForElement(target)) return;
+    
+    // Check if suggestions are enabled
+    try {
+      const result = await chrome.storage.sync.get(['suggestionsEnabled']);
+      const suggestionsEnabled = result.suggestionsEnabled !== false; // default to true
+      if (!suggestionsEnabled) return;
+    } catch (err) {
+      // If we can't access storage, don't show suggestions
+      return;
+    }
+    
     showConnectorSuggestions(target);
   });
 
