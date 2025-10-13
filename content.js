@@ -754,6 +754,94 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     hideSuggestions();
   });
 
+  // Atlan workflow API button functionality
+  function createAtlanApiButton() {
+    // Check if we're on an Atlan workflow page
+    const currentUrl = window.location.href;
+    const atlanWorkflowPattern = /https:\/\/([^\/]+)\.atlan\.com\/workflows\/profile\/([^\/]+)\/runs\?name=(.+)/;
+    const match = currentUrl.match(atlanWorkflowPattern);
+    
+    if (!match) return; // Not an Atlan workflow page
+    
+    const [, domain, workflowId, workflowName] = match;
+    const apiUrl = `https://${domain}.atlan.com/api/orchestration/workflows/default/${workflowName}`;
+    
+    // Check if button already exists
+    if (document.getElementById('quickfill-atlan-api-btn')) return;
+    
+    // Create the button
+    const button = document.createElement('button');
+    button.id = 'quickfill-atlan-api-btn';
+    button.innerHTML = '🔗 Open API URL';
+    button.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 2147483647;
+      background: linear-gradient(90deg, #4c61af, #7b95d6);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(76, 97, 175, 0.4);
+      transition: all 0.3s ease;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    `;
+    
+    // Hover effects
+    button.addEventListener('mouseenter', () => {
+      button.style.background = 'linear-gradient(90deg, #7b95d6, #4c61af)';
+      button.style.transform = 'translateY(-2px)';
+      button.style.boxShadow = '0 6px 16px rgba(123, 149, 214, 0.6)';
+    });
+    
+    button.addEventListener('mouseleave', () => {
+      button.style.background = 'linear-gradient(90deg, #4c61af, #7b95d6)';
+      button.style.transform = 'translateY(0)';
+      button.style.boxShadow = '0 4px 12px rgba(76, 97, 175, 0.4)';
+    });
+    
+    // Click handler
+    button.addEventListener('click', () => {
+      window.open(apiUrl, '_blank');
+      showToast('success', 'Opened API URL in new tab');
+    });
+    
+    // Add to page
+    document.body.appendChild(button);
+    
+    console.log('QuickFill: Added Atlan API button for URL:', apiUrl);
+  }
+  
+  // Check for Atlan workflow pages on load and URL changes
+  function checkAtlanWorkflowPage() {
+    createAtlanApiButton();
+  }
+  
+  // Run on page load
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkAtlanWorkflowPage);
+  } else {
+    checkAtlanWorkflowPage();
+  }
+  
+  // Monitor for URL changes (for SPAs)
+  let lastUrl = window.location.href;
+  new MutationObserver(() => {
+    const currentUrl = window.location.href;
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl;
+      // Remove old button if URL changed
+      const oldButton = document.getElementById('quickfill-atlan-api-btn');
+      if (oldButton) oldButton.remove();
+      // Check new URL
+      setTimeout(checkAtlanWorkflowPage, 100);
+    }
+  }).observe(document, { subtree: true, childList: true });
+
 
   
 })();
